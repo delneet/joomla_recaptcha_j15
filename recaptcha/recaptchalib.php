@@ -1,19 +1,15 @@
 <?php
 /**
- * milkycode Joomla 1.5 reCaptcha plugin.
- * @author      Christian Hinz <christian@milkycode.com>
- * @category    plugins
- * @package     plugins_system
- * @copyright   Copyright (c) 2018 milkycode GmbH (http://www.milkycode.com)
- * @url         https://github.com/milkycode/joomla_recaptcha_j15
- *
  * This is a PHP library that handles calling reCAPTCHA.
  *    - Documentation and latest version
- *          https://developers.google.com/recaptcha/intro
+ *          https://developers.google.com/recaptcha/docs/php
  *    - Get a reCAPTCHA API Key
- *          https://www.google.com/recaptcha/admin
+ *          https://www.google.com/recaptcha/admin/create
  *    - Discussion group
  *          http://groups.google.com/group/recaptcha
+ *
+ * @copyright Copyright (c) 2014, Google Inc.
+ * @link      http://www.google.com/recaptcha
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,159 +31,110 @@
  */
 
 /**
- * The reCAPTCHA server URL's
- */
-define("RECAPTCHA_API_SERVER", "https://www.google.com/recaptcha/api.js");
-define("RECAPTCHA_VERIFY_SERVER", "www.google.com");
-define("RECAPTCHA_VERIFY_PATH", "/recaptcha/api/siteverify");
-
-/**
- * Encodes the given data into a query string format
- * @param $data - array of string elements to be encoded
- * @return string - encoded request
- */
-function _recaptcha_qsencode($data)
-{
-    $req = "";
-    foreach ($data as $key => $value) {
-        $req .= $key.'='.urlencode(stripslashes($value)).'&';
-    }
-
-    // Cut the last '&'
-    $req = substr($req, 0, strlen($req) - 1);
-
-    return $req;
-}
-
-/**
- * Submits an HTTP POST to a reCAPTCHA server
- * @param string $host
- * @param string $path
- * @param array $data
- * @param int $port
- * @return array response
- */
-function _recaptcha_http_post($host, $path, $data, $port = 443)
-{
-    $req = _recaptcha_qsencode($data);
-
-    $http_request = "POST $path HTTP/1.0\r\n";
-    $http_request .= "Host: $host\r\n";
-    $http_request .= "Content-Type: application/x-www-form-urlencoded;\r\n";
-    $http_request .= "Content-Length: ".strlen($req)."\r\n";
-    $http_request .= "User-Agent: mcReCAPTCHA/PHP\r\n";
-    $http_request .= "\r\n";
-    $http_request .= $req;
-
-    $response = '';
-    if (false == ($fs = @fsockopen('ssl://'.$host, $port, $errno, $errstr, 10))) {
-        die ('Could not open socket '.$errstr);
-    }
-
-    fwrite($fs, $http_request);
-
-    while (!feof($fs)) {
-        $response .= fgets($fs, 1160);
-    } // One TCP-IP packet
-    fclose($fs);
-    $response = explode("\r\n\r\n", $response, 2);
-
-    return $response;
-}
-
-$recaptcha_instances = 0;
-
-/**
- * Gets the challenge HTML (javascript and non-javascript version).
- * This is called from the browser, and the resulting reCAPTCHA HTML widget
- * is embedded within the HTML form it was called from.
- * @param string $pubkey A public key for reCAPTCHA
- * @param boolean $ajax Explicit ReCaptcha Mode.
- * @return string - The HTML to be embedded in the user's form.
- */
-function recaptcha_get_html($pubkey, $ajax = true)
-{
-    if ($pubkey == null || $pubkey == '') {
-        die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha'>https://www.google.com/recaptcha</a>");
-    }
-
-    if ($ajax) {
-        global $recaptcha_instances;
-        $i = $recaptcha_instances++;
-        $id = "recaptcha_instance_$i";
-
-        return '<script type="text/javascript">
-                  var onloadRecaptcha = function() {
-                    grecaptcha.render(\''.$id.'\', {
-                      \'sitekey\' : \''.$pubkey.'\'
-                    });
-                  };
-                </script>
-                <script src="'.RECAPTCHA_API_SERVER.'?onload=onloadRecaptcha&render=explicit" async defer></script>
-                <div id="'.$id.'"></div>';
-    } else {
-        return '<script src="'.RECAPTCHA_API_SERVER.'" async defer></script>
-                <div class="g-recaptcha" data-sitekey="'.$pubkey.'"></div>';
-    }
-
-}
-
-/**
- * A ReCaptchaResponse is returned from recaptcha_check_answer()
+ * A ReCaptchaResponse is returned from checkAnswer().
  */
 class ReCaptchaResponse
 {
-    var $is_valid;
-    var $error;
+    public $success;
+    public $errorCodes;
 }
 
-/**
- * Calls an HTTP POST function to verify if the user's guess was correct
- * @param string $privkey
- * @param string $remoteip
- * @param string $response
- * @param array $extra_params an array of extra variables to post to the server
- * @return ReCaptchaResponse
- */
-function recaptcha_check_answer($privkey, $remoteip, $response, $extra_params = array())
+class ReCaptcha
 {
-    if ($privkey == null || $privkey == '') {
-        die ("To use reCAPTCHA you must get an API key from <a href='https://www.google.com/recaptcha/'>https://www.google.com/recaptcha/</a>");
+    private static $_signupUrl = "https://www.google.com/recaptcha/admin";
+    private static $_siteVerifyUrl =
+        "https://www.google.com/recaptcha/api/siteverify?";
+    private $_secret;
+    private static $_version = "php_1.0";
+
+    /**
+     * Constructor.
+     *
+     * @param string $secret shared secret between site and ReCAPTCHA server.
+     */
+    function ReCaptcha($secret)
+    {
+        if ($secret == null || $secret == "") {
+            die("To use reCAPTCHA you must get an API key from <a href='"
+                . self::$_signupUrl . "'>" . self::$_signupUrl . "</a>");
+        }
+        $this->_secret=$secret;
     }
 
-    if ($remoteip == null || $remoteip == '') {
-        die ("For security reasons, you must pass the remote ip to reCAPTCHA");
+    /**
+     * Encodes the given data into a query string format.
+     *
+     * @param array $data array of string elements to be encoded.
+     *
+     * @return string - encoded request.
+     */
+    private function _encodeQS($data)
+    {
+        $req = "";
+        foreach ($data as $key => $value) {
+            $req .= $key . '=' . urlencode(stripslashes($value)) . '&';
+        }
+
+        // Cut the last '&'
+        $req=substr($req, 0, strlen($req)-1);
+        return $req;
     }
 
-    $recaptcha_response = new ReCaptchaResponse();
-
-    //discard spam submissions
-    if ($response == null || strlen($response) == 0) {
-        $recaptcha_response->is_valid = false;
-        $recaptcha_response->error = 'bad-request';
-
-        return $recaptcha_response;
+    /**
+     * Submits an HTTP GET to a reCAPTCHA server.
+     *
+     * @param string $path url path to recaptcha server.
+     * @param array  $data array of parameters to be sent.
+     *
+     * @return array response
+     */
+    private function _submitHTTPGet($path, $data)
+    {
+        $req = $this->_encodeQS($data);
+        $response = file_get_contents($path . $req);
+        return $response;
     }
 
-    $response = _recaptcha_http_post(
-        RECAPTCHA_VERIFY_SERVER,
-        RECAPTCHA_VERIFY_PATH,
-        array(
-            'secret' => $privkey,
-            'remoteip' => $remoteip,
-            'response' => $response
-        ) + $extra_params
-    );
+    /**
+     * Calls the reCAPTCHA siteverify API to verify whether the user passes
+     * CAPTCHA test.
+     *
+     * @param string $remoteIp   IP address of end user.
+     * @param string $response   response string from recaptcha verification.
+     *
+     * @return ReCaptchaResponse
+     */
+    public function verifyResponse($remoteIp, $response)
+    {
+        // Discard empty solution submissions
+        if ($response == null || strlen($response) == 0) {
+            $recaptchaResponse = new ReCaptchaResponse();
+            $recaptchaResponse->success = false;
+            $recaptchaResponse->errorCodes = 'missing-input';
+            return $recaptchaResponse;
+        }
 
-    $answers = json_decode($response[1]);
-    if (!empty($answers) && $answers->success) {
-        $recaptcha_response->is_valid = true;
-    } else {
-        $recaptcha_response->is_valid = false;
-        $error = 'error-codes';
-        $recaptcha_response->error = $answers->$error;
+        $getResponse = $this->_submitHttpGet(
+            self::$_siteVerifyUrl,
+            array (
+                'secret' => $this->_secret,
+                'remoteip' => $remoteIp,
+                'v' => self::$_version,
+                'response' => $response
+            )
+        );
+        $answers = json_decode($getResponse, true);
+        $recaptchaResponse = new ReCaptchaResponse();
+
+        if (trim($answers ['success']) == true) {
+            $recaptchaResponse->success = true;
+        } else {
+            $recaptchaResponse->success = false;
+            $recaptchaResponse->errorCodes = $answers [error-codes];
+        }
+
+        return $recaptchaResponse;
     }
-
-    return $recaptcha_response;
-
 }
+
+?>

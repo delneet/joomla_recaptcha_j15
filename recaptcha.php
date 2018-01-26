@@ -4,13 +4,14 @@
  * @author      Christian Hinz <christian@milkycode.com>
  * @category    plugins
  * @package     plugins_system
- * @copyright   Copyright (c) 2018 milkycode GmbH (http://www.milkycode.com)
+ * @copyright   Copyright (c) 2015 milkycode UG (http://www.milkycode.com)
  * @url         https://github.com/milkycode/joomla_recaptcha_j15
  */
 
 defined('_JEXEC') or ('_VALID_MOS') or die('Direct Access to this location is not allowed.');
 
 jimport('joomla.plugin.plugin');
+
 
 class plgSystemRecaptcha extends JPlugin
 {
@@ -19,9 +20,9 @@ class plgSystemRecaptcha extends JPlugin
         parent::__construct($subject, $config);
 
         require_once(dirname(__FILE__).'/recaptcha/api.php');
-        ReCaptcha::setKeys(
-            $this->params->get('public', Recaptcha::get('publicKey')),
-            $this->params->get('private', Recaptcha::get('privateKey'))
+        ReCaptchaApi::setKeys(
+            $this->params->get('public', ReCaptchaApi::get('publicKey')),
+            $this->params->get('private', ReCaptchaApi::get('privateKey'))
         );
     }
 
@@ -31,7 +32,10 @@ class plgSystemRecaptcha extends JPlugin
         $view = JRequest::getCmd('view');
         $task = JRequest::getCmd('task');
 
-        if ($this->params->get('addToContact', 1) == 1 && $option == 'com_contact' && $task == 'submit') {
+        if ($this->params->get('addToContact', 1) == 1 &&
+            $option == 'com_contact' &&
+            $task == 'submit'
+        ) {
             return true;
         }
 
@@ -51,7 +55,7 @@ class plgSystemRecaptcha extends JPlugin
 
     function onAfterInitialise()
     {
-        ReCaptcha::process();
+        ReCaptchaApi::process();
     }
 
     function onAfterRoute()
@@ -59,9 +63,8 @@ class plgSystemRecaptcha extends JPlugin
         if (!$this->processPage()) {
             return;
         }
-        if (ReCaptcha::get('submitted') && !ReCaptcha::get('success')) {
+        if (ReCaptchaApi::get('submitted') && !ReCaptchaApi::get('success')) {
             JRequest::setVar('task', 'display');
-            JError::raiseWarning(0, 'Bitte `Ich bin kein Roboter` anklicken!');
         }
     }
 
@@ -89,7 +92,7 @@ class plgSystemRecaptcha extends JPlugin
 
     function _addFormCallback($matches)
     {
-        return ReCaptcha::get('html').'<br />'.$matches[0];
+        return ReCaptchaApi::get('html').'<br />'.$matches[0];
     }
 
     function _addInputValues($matches)
